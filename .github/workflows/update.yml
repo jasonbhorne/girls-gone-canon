@@ -1,0 +1,38 @@
+name: Refresh dashboard data
+
+on:
+  schedule:
+    - cron: "17 12 * * *"   # daily, 12:17 UTC
+  workflow_dispatch: {}      # manual runs from the Actions tab
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ggc-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Rebuild docs/data.js from the RSS feed
+        run: python3 update.py
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "ggc-dashboard-bot"
+          git config user.email "actions@github.com"
+          git add docs/data.js
+          if git diff --cached --quiet; then
+            echo "No changes."
+          else
+            git commit -m "Refresh dashboard data $(date -u +%Y-%m-%d)"
+            git push
+          fi

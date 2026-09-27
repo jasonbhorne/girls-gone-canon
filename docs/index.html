@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Girls Gone Canon, by the numbers</title>
+<meta name="description" content="A dashboard for the Girls Gone Canon podcast: the A Song of Ice and Fire read-through by book and POV, output over time, episode length, guests, and every episode in one searchable table.">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="hero">
+  <div class="wrap hero-grid">
+    <img id="art" class="art" alt="" hidden>
+    <div class="hero-text">
+      <p class="kicker">Podcast dashboard</p>
+      <h1 id="title">Girls Gone Canon</h1>
+      <p class="sub" id="tagline">A literary lens on A Song of Ice and Fire, House of the Dragon, His Dark Materials and more.</p>
+      <p class="updated" id="updated">Loading…</p>
+    </div>
+    <button class="theme-btn" id="theme-btn" type="button" aria-label="Toggle dark or light theme">Theme</button>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="notice" id="sample-note" hidden>
+    <strong>Sample data.</strong> This page is showing a generated stand-in feed so you can see the layout. Run <code>python3 update.py</code> (or let the GitHub Action run) to load the real episode list.
+  </div>
+
+  <section class="kpis" id="kpis" aria-label="Headline numbers"></section>
+
+  <section class="panel" id="read-panel">
+    <div class="panel-head">
+      <h2>The read</h2>
+      <p class="lede">POV by POV through all five books. One chapter counts once, however many episodes it takes. All time; the filters below do not apply here.</p>
+    </div>
+    <div class="read-grid">
+      <div class="hero-figure">
+        <div class="hero-num" id="hero-pct">0%</div>
+        <div class="hero-lbl" id="hero-lbl">of A Song of Ice and Fire covered</div>
+        <p class="hero-note" id="hero-note"></p>
+      </div>
+      <div class="meters" id="book-meters"></div>
+    </div>
+    <h3>Chapters by POV and book</h3>
+    <p class="lede">Covered chapters over the total that POV has in each book. Darker means more of the arc is done.</p>
+    <div class="table-scroll"><table id="pov-table" class="pov"></table></div>
+  </section>
+
+  <div class="filters" id="filters" role="group" aria-label="Filters">
+    <label class="filter-lbl">Range
+      <select id="range">
+        <option value="all">All time</option>
+        <option value="12">Last 12 months</option>
+        <option value="36">Last 3 years</option>
+        <option value="60">Last 5 years</option>
+      </select>
+    </label>
+    <div class="chips" id="series-chips" aria-label="Series"></div>
+    <span class="filter-note" id="filter-note"></span>
+  </div>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Episodes per year</h2>
+      <p class="lede" id="output-read"></p>
+    </div>
+    <div class="legend" id="output-legend"></div>
+    <div class="chart" id="output-chart"></div>
+  </section>
+
+  <div class="two-col">
+    <section class="panel">
+      <div class="panel-head">
+        <h2>How long the episodes run</h2>
+        <p class="lede" id="length-read"></p>
+      </div>
+      <div class="chart" id="length-chart"></div>
+    </section>
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Release day</h2>
+        <p class="lede" id="weekday-read"></p>
+      </div>
+      <div class="chart" id="weekday-chart"></div>
+    </section>
+  </div>
+
+  <div class="two-col">
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Guests</h2>
+        <p class="lede" id="guest-read"></p>
+      </div>
+      <div class="table-scroll"><table id="guest-table"></table></div>
+    </section>
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Longest episodes</h2>
+        <p class="lede">The ten biggest runtimes in the current range.</p>
+      </div>
+      <div class="table-scroll"><table id="long-table"></table></div>
+    </section>
+  </div>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Every episode</h2>
+      <p class="lede">Search by title, guest, or chapter. Click a heading to sort.</p>
+    </div>
+    <input type="search" id="search" class="search" placeholder="Search episodes…" aria-label="Search episodes">
+    <div class="table-scroll"><table id="ep-table"></table></div>
+    <button type="button" class="more" id="more" hidden>Show more</button>
+  </section>
+</main>
+
+<footer class="wrap">
+  <p>Built from the show's public RSS feed. Chapter reference lives in <code>data/chapters.json</code>. Not affiliated with the podcast's hosts or publishers; all shows and books belong to their owners.</p>
+  <p><a id="feed-link" href="#">RSS feed</a> · <a id="site-link" href="#">Podcast site</a> · <a href="https://github.com/jasonbhorne/girls-gone-canon">Source on GitHub</a></p>
+</footer>
+
+<div id="tip" class="tip" role="tooltip" hidden></div>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

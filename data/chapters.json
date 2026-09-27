@@ -1,0 +1,61 @@
+{
+  "_comment": "ASOIAF chapter reference. Counts are POV chapters per book (prologues and epilogues counted as their own POV). 'named' maps titled chapters in AFFC/ADWD to (book, POV, ordinal within that POV's chapters). Edit freely; update.py reads this at run time.",
+  "books": [
+    {"key": "AGOT", "title": "A Game of Thrones", "year": 1996, "aliases": ["a game of thrones", "game of thrones book", "agot"]},
+    {"key": "ACOK", "title": "A Clash of Kings", "year": 1998, "aliases": ["a clash of kings", "acok"]},
+    {"key": "ASOS", "title": "A Storm of Swords", "year": 2000, "aliases": ["a storm of swords", "asos"]},
+    {"key": "AFFC", "title": "A Feast for Crows", "year": 2005, "aliases": ["a feast for crows", "affc"]},
+    {"key": "ADWD", "title": "A Dance with Dragons", "year": 2011, "aliases": ["a dance with dragons", "adwd"]}
+  ],
+  "pov_aliases": {
+    "Ned": "Eddard", "Dany": "Daenerys", "Sam": "Samwell", "Jon Connington": "Connington",
+    "JonCon": "Connington", "Reek": "Theon", "Alayne": "Sansa", "Cat": "Arya", "Mercy": "Arya",
+    "Kevan": "Epilogue", "Will": "Prologue", "Cressen": "Prologue", "Chett": "Prologue",
+    "Pate": "Prologue", "Varamyr": "Prologue", "Merrett": "Epilogue"
+  },
+  "counts": {
+    "AGOT": {"Prologue": 1, "Bran": 7, "Catelyn": 11, "Daenerys": 10, "Eddard": 15, "Jon": 9, "Arya": 5, "Tyrion": 9, "Sansa": 6},
+    "ACOK": {"Prologue": 1, "Arya": 10, "Sansa": 8, "Tyrion": 15, "Bran": 7, "Catelyn": 7, "Jon": 8, "Theon": 6, "Daenerys": 5, "Davos": 3},
+    "ASOS": {"Prologue": 1, "Jaime": 9, "Catelyn": 7, "Arya": 13, "Tyrion": 11, "Davos": 6, "Sansa": 7, "Jon": 12, "Daenerys": 6, "Bran": 4, "Samwell": 5, "Epilogue": 1},
+    "AFFC": {"Prologue": 1, "Aeron": 2, "Areo": 1, "Cersei": 10, "Brienne": 8, "Samwell": 5, "Arya": 3, "Sansa": 3, "Jaime": 7, "Asha": 1, "Arys": 1, "Victarion": 2, "Arianne": 2},
+    "ADWD": {"Prologue": 1, "Tyrion": 12, "Daenerys": 10, "Jon": 13, "Bran": 3, "Davos": 4, "Theon": 7, "Quentyn": 4, "Jaime": 1, "Melisandre": 1, "Victarion": 2, "Cersei": 2, "Barristan": 4, "Asha": 3, "Arya": 2, "Areo": 1, "Connington": 2, "Epilogue": 1}
+  },
+  "named": {
+    "The Prophet": ["AFFC", "Aeron", 1],
+    "The Captain of Guards": ["AFFC", "Areo", 1],
+    "The Kraken's Daughter": ["AFFC", "Asha", 1],
+    "The Soiled Knight": ["AFFC", "Arys", 1],
+    "The Iron Captain": ["AFFC", "Victarion", 1],
+    "The Drowned Man": ["AFFC", "Aeron", 2],
+    "The Queenmaker": ["AFFC", "Arianne", 1],
+    "The Reaver": ["AFFC", "Victarion", 2],
+    "Cat of the Canals": ["AFFC", "Arya", 3],
+    "The Princess in the Tower": ["AFFC", "Arianne", 2],
+    "Alayne I": ["AFFC", "Sansa", 3],
+    "The Merchant's Man": ["ADWD", "Quentyn", 1],
+    "Reek I": ["ADWD", "Theon", 1],
+    "Reek II": ["ADWD", "Theon", 2],
+    "The Lost Lord": ["ADWD", "Connington", 1],
+    "The Windblown": ["ADWD", "Quentyn", 2],
+    "The Wayward Bride": ["ADWD", "Asha", 1],
+    "Reek III": ["ADWD", "Theon", 3],
+    "The Prince of Winterfell": ["ADWD", "Theon", 4],
+    "The Watcher": ["ADWD", "Areo", 1],
+    "The Turncloak": ["ADWD", "Theon", 5],
+    "The King's Prize": ["ADWD", "Asha", 2],
+    "The Blind Girl": ["ADWD", "Arya", 1],
+    "A Ghost in Winterfell": ["ADWD", "Theon", 6],
+    "Theon I": ["ADWD", "Theon", 7],
+    "The Queensguard": ["ADWD", "Barristan", 1],
+    "The Iron Suitor": ["ADWD", "Victarion", 1],
+    "The Discarded Knight": ["ADWD", "Barristan", 2],
+    "The Spurned Suitor": ["ADWD", "Quentyn", 3],
+    "The Griffin Reborn": ["ADWD", "Connington", 2],
+    "The Sacrifice": ["ADWD", "Asha", 3],
+    "Victarion I": ["ADWD", "Victarion", 2],
+    "The Ugly Little Girl": ["ADWD", "Arya", 2],
+    "The Kingbreaker": ["ADWD", "Barristan", 3],
+    "The Dragontamer": ["ADWD", "Quentyn", 4],
+    "The Queen's Hand": ["ADWD", "Barristan", 4]
+  }
+}
