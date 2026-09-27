@@ -13,10 +13,13 @@ Standard library only. Run:
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import re
 import sys
 import urllib.request
+from collections import Counter
+from urllib.parse import urlsplit
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -28,6 +31,15 @@ CHAPTERS = ROOT / "data" / "chapters.json"
 OUT = ROOT / "docs" / "data.js"
 
 ITUNES = "{http://www.itunes.com/dtds/podcast-1.0.dtd}"
+CONTENT = "{http://purl.org/rss/1.0/modules/content/}"
+# Podcasting 2.0 namespace, in the spellings seen in the wild.
+PODCAST_NS = (
+    "{https://podcastindex.org/namespace/1.0}",
+    "{http://podcastindex.org/namespace/1.0}",
+    "{https://github.com/Podcastindex-org/podcast-namespace/blob/main/docs/1.0.md}",
+)
+TRANSCRIPTS_DIR = ROOT / "data" / "transcripts"
+NOTES_MAX = 1500
 
 # Series buckets. Order matters: the first matching rule wins.
 SERIES_RULES = [
@@ -130,6 +142,107 @@ class ChapterRef:
 
     def books_for(self, pov: str) -> list[str]:
         return [b for b in self.book_keys if pov in self.counts[b]]
+
+
+
+def html_to_text(raw: str) -> str:
+    """Flatten show-notes HTML to readable text, keeping line breaks."""
+    if not raw:
+        return ""
+    t = re.sub(r"(?i)<\s*br\s*/?>", "\n", raw)
+    t = re.sub(r"(?i)</\s*(p|div|li|h\d|tr)\s*>", "\n", t)
+    t = re.sub(r"<[^>]+>", "", t)
+    t = html.unescape(t)
+    t = re.sub(r"[ \t\r\f\v]+", " ", t)
+    t = re.sub(r"\n\s*\n+", "\n", t)
+    return t.strip()
+
+
+LINK_RE = re.compile(r"""<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>(.*?)</a>""", re.IGNORECASE | re.DOTALL)
+BARE_URL_RE = re.compile(r"https?://[^\s<>\"')\]]+")
+
+
+def extract_links(raw_html: str, plain: str) -> list[dict]:
+    """Every link in the notes as {url, label}. Anchor text first, then bare URLs."""
+    out, seen = [], set()
+
+    def add(url, label):
+        url = html.unescape(url.strip()).rstrip(".,;")
+        key = url.lower().rstrip("/")
+        if not url.startswith("http") or key in seen:
+            return
+        seen.add(key)
+        label = re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", "", label or ""))).strip()
+        if not label or label.startswith("http"):
+            label = urlsplit(url).netloc.replace("www.", "")
+        out.append({"url": url, "label": label[:80]})
+
+    for m in LINK_RE.finditer(raw_html or ""):
+        add(m.group(1), m.group(2))
+    for m in BARE_URL_RE.finditer(plain or ""):
+        add(m.group(0), "")
+    return out
+
+
+# Sentences in the notes that introduce a guest.
+NOTES_GUEST_RES = [
+    re.compile(r"(?i:special guests?|our guest|guest host)[,:]?\s+(?P<g>[A-Z][\w'@-]*(?:\s+(?:of|the|and|&|[A-Z][\w'@-]*)){0,7})", re.UNICODE),
+    re.compile(r"(?i:joined by|welcome(?:s|d)?(?: back)?|sit(?:s|ting)? down with|chat(?:s|ting)? with|talk(?:s|ing)? with)\s+(?P<g>[A-Z][\w'@-]*(?:\s+(?:of|the|and|&|[A-Z][\w'@-]*)){0,7})"),
+    re.compile(r"(?P<g>[A-Z][\w'@-]*(?:\s+(?:of|the|and|&|[A-Z][\w'@-]*)){0,7})\s+(?i:joins|is joining|returns to|is back on|comes back to|rejoins)\b"),
+]
+NOT_GUESTS = {"eliana", "chloe", "girls gone canon", "the girls", "we", "the", "this", "asoiaf", "patreon", "twitter", "george", "grrm"}
+
+
+def split_person_affiliation(name: str) -> tuple[str, str | None]:
+    """'Aziz of History of Westeros' -> ('Aziz', 'History of Westeros')."""
+    m = re.match(r"^(.+?)\s+(?:of|from|aka)\s+(.+)$", name.strip(), re.IGNORECASE)
+    if m and not m.group(1).lower().endswith(("history", "world", "tower")):
+        return m.group(1).strip(), m.group(2).strip()
+    return name.strip(), None
+
+
+def guests_from_notes(plain: str) -> list[tuple[str, str | None]]:
+    found = []
+    for rx in NOTES_GUEST_RES:
+        for m in rx.finditer(plain or ""):
+            g = m.group("g").strip(" ,.!")
+            g = re.sub(r"\s+(?:and|&|the|of)$", "", g)
+            people, affil = split_person_affiliation(g)
+            # "Aziz and Ashaya of History of Westeros" is two guests sharing one affiliation.
+            for person in re.split(r"\s+(?:and|&)\s+", people):
+                person = person.strip(" ,.!")
+                if person.lower() in NOT_GUESTS or len(person) < 2 or len(person) > 40:
+                    continue
+                if affil and affil.lower() == person.lower():
+                    affil = None
+                if not any(person.lower() == f[0].lower() for f in found):
+                    found.append((person, affil))
+    return found
+
+
+def merge_guests(title_guests: list[str], notes_guests: list[tuple[str, str | None]]) -> list[dict]:
+    """Union of title and notes guests, keyed case-insensitively, keeping any affiliation."""
+    out: list[dict] = []
+
+    def put(name, affil, source):
+        person, a2 = split_person_affiliation(name)
+        affil = affil or a2
+        if affil and affil.lower() == person.lower():
+            affil = None
+        for g in out:
+            if g["name"].lower() == person.lower() or person.lower() in g["name"].lower() or g["name"].lower() in person.lower():
+                if affil and not g.get("affiliation"):
+                    g["affiliation"] = affil
+                if source not in g["sources"]:
+                    g["sources"].append(source)
+                return
+        out.append({"name": person, "affiliation": affil, "sources": [source]})
+
+    for g in title_guests:
+        put(g, None, "title")
+    for person, affil in notes_guests:
+        put(person, affil, "notes")
+    return out
 
 
 GUEST_RE = re.compile(
@@ -252,17 +365,40 @@ def parse_feed(xml_bytes: bytes, ref: ChapterRef) -> dict:
         except (TypeError, ValueError):
             continue
         enc = it.find("enclosure")
+        raw_notes = text(it, CONTENT + "encoded") or text(it, "description") or text(it, ITUNES + "summary")
+        notes = html_to_text(raw_notes)
+        links = extract_links(raw_notes, notes)
+        transcripts = []
+        for ns in PODCAST_NS:
+            for tnode in it.findall(ns + "transcript"):
+                if tnode.get("url"):
+                    transcripts.append({"url": tnode.get("url"), "type": tnode.get("type", ""), "language": tnode.get("language", "")})
         e = {
             "title": title,
             "date": dt.strftime("%Y-%m-%d"),
             "weekday": dt.weekday(),  # 0 = Monday
             "duration": parse_duration(text(it, ITUNES + "duration")),
             "url": text(it, "link") or (enc.get("url") if enc is not None else ""),
-            "guests": parse_guests(title),
+            "audio": enc.get("url") if enc is not None else "",
+            "guests": [],
+            "guest_details": merge_guests(parse_guests(title), guests_from_notes(notes)),
+            "notes": notes[:NOTES_MAX] + ("…" if len(notes) > NOTES_MAX else ""),
+            "links": links,
+            "transcripts": transcripts,
             "explicit": text(it, ITUNES + "explicit").lower() in ("yes", "true"),
         }
+        e["guests"] = [g["name"] for g in e["guest_details"]]
         e.update(classify(title, ref))
         episodes.append(e)
+
+    # Links that appear in a large share of episodes are the hosts' own boilerplate
+    # (Patreon, socials, merch). Everything else is episode-specific: usually the guest.
+    link_freq = Counter(l["url"].lower().rstrip("/") for e in episodes for l in e["links"])
+    boiler_cut = max(5, len(episodes) * 0.15)
+    boilerplate = {u for u, n in link_freq.items() if n >= boiler_cut}
+    for e in episodes:
+        e["episode_links"] = [l for l in e["links"] if l["url"].lower().rstrip("/") not in boilerplate]
+        del e["links"]
 
     episodes.sort(key=lambda e: e["date"])
     infer_books(episodes, ref)
@@ -279,6 +415,7 @@ def parse_feed(xml_bytes: bytes, ref: ChapterRef) -> dict:
         b: {pov: sorted(s) for pov, s in povs.items()} for b, povs in covered.items()
     }
 
+    meta["boilerplate_links"] = sorted(boilerplate)
     return {
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "source": "feed",
@@ -288,6 +425,34 @@ def parse_feed(xml_bytes: bytes, ref: ChapterRef) -> dict:
         "coverage": coverage,
         "episodes": episodes,
     }
+
+
+def slugify(s: str) -> str:
+    return re.sub(r"-+", "-", re.sub(r"[^a-z0-9]+", "-", s.lower())).strip("-")[:70]
+
+
+def download_transcripts(data: dict, limit: int | None = None) -> int:
+    """Save feed-linked transcripts under data/transcripts/. Skips files already present."""
+    TRANSCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
+    ext_for = {"text/vtt": "vtt", "application/x-subrip": "srt", "application/srt": "srt",
+               "text/plain": "txt", "application/json": "json", "text/html": "html"}
+    n = 0
+    for e in reversed(data["episodes"]):  # newest first
+        for t in e["transcripts"]:
+            ext = ext_for.get(t["type"].split(";")[0].strip().lower()) or (urlsplit(t["url"]).path.rsplit(".", 1)[-1][:5] or "txt")
+            path = TRANSCRIPTS_DIR / f'{e["date"]}-{slugify(e["title"])}.{ext}'
+            t["file"] = str(path.relative_to(ROOT))
+            if path.exists():
+                continue
+            if limit is not None and n >= limit:
+                continue
+            try:
+                path.write_bytes(fetch(t["url"]))
+                n += 1
+                print(f"  transcript saved: {path.name}")
+            except Exception as exc:  # network hiccups should not kill the run
+                print(f"  transcript failed: {t['url']} ({exc})")
+    return n
 
 
 def fetch(url: str) -> bytes:
@@ -302,6 +467,8 @@ def main() -> int:
     ap.add_argument("--feed-url", default=FEED_URL)
     ap.add_argument("--out", default=str(OUT))
     ap.add_argument("--source-label", default=None, help="override the data source label (e.g. 'sample')")
+    ap.add_argument("--download-transcripts", action="store_true", help="save any transcripts the feed links to under data/transcripts/")
+    ap.add_argument("--transcript-limit", type=int, default=None, help="max new transcript files to download this run")
     args = ap.parse_args()
 
     ref = ChapterRef(CHAPTERS)
@@ -314,6 +481,9 @@ def main() -> int:
     data = parse_feed(xml_bytes, ref)
     if args.source_label:
         data["source"] = args.source_label
+    if args.download_transcripts:
+        got = download_transcripts(data, args.transcript_limit)
+        print(f"Downloaded {got} new transcript file(s) to {TRANSCRIPTS_DIR}")
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -324,7 +494,13 @@ def main() -> int:
     by_series: dict[str, int] = {}
     for e in eps:
         by_series[e["series"]] = by_series.get(e["series"], 0) + 1
+    n_tr = sum(1 for e in eps if e["transcripts"])
+    n_notes = sum(1 for e in eps if e["notes"])
+    n_guest = sum(1 for e in eps if e["guests"])
+    n_notes_only = sum(1 for e in eps if any("notes" in g["sources"] and "title" not in g["sources"] for g in e["guest_details"]))
     print(f"Wrote {out} : {len(eps)} episodes, {n_ch}/344 chapters covered")
+    print(f"  show notes on {n_notes} episodes; guests on {n_guest} ({n_notes_only} found only in the notes); "
+          f"transcript links on {n_tr}; {len(data['podcast']['boilerplate_links'])} boilerplate links filtered")
     for k, v in sorted(by_series.items(), key=lambda kv: -kv[1]):
         print(f"  {k:32s} {v}")
     unmatched = [e["title"] for e in eps if e["series"] == "ASOIAF" and not e.get("chapter_key")]

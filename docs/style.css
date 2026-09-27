@@ -189,6 +189,16 @@ td.mut { color: var(--mut); }
 .tag { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-2); white-space: nowrap; }
 .tag i { width: 9px; height: 9px; border-radius: 3px; background: var(--c); }
 .search { width: 100%; margin: 0 0 12px; }
+.notes-btn { appearance: none; font: inherit; font-size: 11px; margin-left: 8px; padding: 1px 7px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--panel-2); color: var(--mut); cursor: pointer; vertical-align: 1px; }
+.notes-btn:hover, .notes-btn[aria-expanded="true"] { border-color: var(--accent); color: var(--ink); }
+.notes-row td { background: var(--panel-2); padding: 12px 14px 12px 28px; }
+.notes-box { max-width: 760px; font-size: 14px; color: var(--ink-2); }
+.notes-box p { margin: 0 0 8px; white-space: pre-line; }
+.notes-links { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.pill { display: inline-block; font-size: 12.5px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--accent); }
+.pill:hover { border-color: var(--accent); text-decoration: none; }
+td small.mut { font-size: 12px; }
 .more { display: block; margin: 12px auto 0; font: inherit; font-size: 14px; padding: 8px 18px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); cursor: pointer; }
 .more:hover { border-color: var(--accent); }
 .empty { color: var(--mut); padding: 18px 0; }

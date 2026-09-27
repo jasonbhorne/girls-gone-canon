@@ -104,7 +104,9 @@ function paintHeader() {
   if (p.feed) $("feed-link").href = p.feed;
   if (p.link) $("site-link").href = p.link;
   const eps = D.episodes;
-  $("updated").textContent = `Updated ${fmtDate(D.generated_at.slice(0, 10))} · ${fmtInt(eps.length)} episodes · ${fmtDate(eps[0].date)} to ${fmtDate(eps[eps.length - 1].date)}`;
+  const nTr = eps.filter((e) => e.transcripts && e.transcripts.length).length;
+  $("updated").textContent = `Updated ${fmtDate(D.generated_at.slice(0, 10))} · ${fmtInt(eps.length)} episodes · ${fmtDate(eps[0].date)} to ${fmtDate(eps[eps.length - 1].date)}` +
+    (nTr ? ` · transcripts linked on ${nTr}` : "");
   if (D.source === "sample") $("sample-note").hidden = false;
 }
 
@@ -491,19 +493,28 @@ function chapterLabel(e) {
 
 function paintGuests(eps) {
   const byGuest = {};
-  for (const e of eps) for (const g of e.guests) {
-    const r = (byGuest[g] ||= { n: 0, first: e.date, last: e.date });
+  for (const e of eps) for (const g of (e.guest_details || e.guests.map((n) => ({ name: n })))) {
+    const r = (byGuest[g.name] ||= { n: 0, first: e.date, last: e.date, affiliation: null, url: null });
     r.n++; if (e.date < r.first) r.first = e.date; if (e.date > r.last) r.last = e.date;
+    if (g.affiliation && !r.affiliation) r.affiliation = g.affiliation;
+    if (!r.url && e.episode_links && e.episode_links.length) r.url = e.episode_links[0].url;
   }
   const rows = Object.entries(byGuest).sort((a, b) => b[1].n - a[1].n || a[0].localeCompare(b[0])).slice(0, 15);
   const table = $("guest-table");
   const withGuest = eps.filter((e) => e.guests.length).length;
-  $("guest-read").textContent = eps.length ? `${withGuest} of ${eps.length} episodes in range have a guest (${Math.round(100 * withGuest / eps.length)}%). Most frequent, top 15.` : "No episodes in this range.";
+  const notesOnly = eps.filter((e) => (e.guest_details || []).some((g) => g.sources.includes("notes") && !g.sources.includes("title"))).length;
+  $("guest-read").textContent = eps.length
+    ? `${withGuest} of ${eps.length} episodes in range have a guest (${Math.round(100 * withGuest / eps.length)}%)` + (notesOnly ? `, ${notesOnly} of them named only in the show notes` : "") + `. Most frequent, top 15.`
+    : "No episodes in this range.";
   if (!rows.length) { table.replaceChildren(); table.appendChild(el("caption", "empty", "No guests found in the titles for this range.")); return; }
   const tbody = tableHead(table, [{ label: "Guest" }, { label: "Episodes", num: true }, { label: "First" }, { label: "Latest" }]);
   for (const [g, r] of rows) {
     const tr = el("tr");
-    tr.append(el("td", null, g), el("td", "num", String(r.n)), el("td", "mut", fmtDate(r.first)), el("td", "mut", fmtDate(r.last)));
+    const td = el("td");
+    if (r.url) { const a = el("a", null, g); a.href = r.url; a.target = "_blank"; a.rel = "noopener"; td.appendChild(a); }
+    else td.textContent = g;
+    if (r.affiliation) td.appendChild(el("small", "mut", " · " + r.affiliation));
+    tr.append(td, el("td", "num", String(r.n)), el("td", "mut", fmtDate(r.first)), el("td", "mut", fmtDate(r.last)));
     tbody.appendChild(tr);
   }
 }
@@ -526,7 +537,7 @@ const EP_COLS = [
 ];
 function paintEpisodeTable() {
   let eps = filtered();
-  if (state.q) eps = eps.filter((e) => (e.title + " " + e.guests.join(" ") + " " + chapterLabel(e) + " " + (e.book ? BOOK_TITLE[e.book] : "")).toLowerCase().includes(state.q));
+  if (state.q) eps = eps.filter((e) => (e.title + " " + e.guests.join(" ") + " " + chapterLabel(e) + " " + (e.book ? BOOK_TITLE[e.book] : "") + " " + (e.notes || "")).toLowerCase().includes(state.q));
   const { key, dir } = state.sort;
   const val = (e) => key === "chapter" ? chapterLabel(e) : key === "guests" ? e.guests.join(", ") : key === "duration" ? (e.duration || 0) : e[key];
   eps.sort((a, b) => { const x = val(a), y = val(b); return (x < y ? -1 : x > y ? 1 : 0) * dir || (a.date < b.date ? 1 : -1); });
@@ -539,6 +550,12 @@ function paintEpisodeTable() {
   for (const e of show) {
     const tr = el("tr");
     const td = el("td"); const a = el("a", null, e.title); a.href = e.url || "#"; a.target = "_blank"; a.rel = "noopener"; td.appendChild(a);
+    if (e.notes || (e.transcripts && e.transcripts.length)) {
+      const b = el("button", "notes-btn", "notes");
+      b.type = "button"; b.setAttribute("aria-expanded", "false"); b.title = "Show notes";
+      b.addEventListener("click", () => toggleNotes(tr, e, b));
+      td.appendChild(b);
+    }
     const ts = el("td"); ts.appendChild(seriesTag(e.series));
     tr.append(el("td", "mut", fmtDate(e.date)), td, ts, el("td", "mut", chapterLabel(e)), el("td", "num", fmtDur(e.duration)), el("td", "mut", e.guests.join(", ")));
     tbody.appendChild(tr);
@@ -547,6 +564,30 @@ function paintEpisodeTable() {
   const more = $("more");
   more.hidden = eps.length <= state.shown;
   more.textContent = `Show more (${fmtInt(eps.length - state.shown)} left)`;
+}
+
+function toggleNotes(tr, e, btn) {
+  const open = tr.nextElementSibling && tr.nextElementSibling.classList.contains("notes-row");
+  if (open) { tr.nextElementSibling.remove(); btn.setAttribute("aria-expanded", "false"); return; }
+  const row = el("tr", "notes-row"), td = el("td");
+  td.colSpan = EP_COLS.length;
+  const box = el("div", "notes-box");
+  if (e.notes) {
+    for (const para of e.notes.split("\n")) if (para.trim()) box.appendChild(el("p", null, para));
+  }
+  const links = (e.episode_links || []).slice(0, 8);
+  const trs = e.transcripts || [];
+  if (links.length || trs.length) {
+    const ul = el("div", "notes-links");
+    if (trs.length) {
+      const a = el("a", "pill", "Transcript"); a.href = trs[0].url; a.target = "_blank"; a.rel = "noopener"; ul.appendChild(a);
+    }
+    for (const l of links) { const a = el("a", "pill", l.label); a.href = l.url; a.target = "_blank"; a.rel = "noopener"; ul.appendChild(a); }
+    box.appendChild(ul);
+  }
+  td.appendChild(box); row.appendChild(td);
+  tr.after(row);
+  btn.setAttribute("aria-expanded", "true");
 }
 
 // ---------- boot ----------------------------------------------------------------
