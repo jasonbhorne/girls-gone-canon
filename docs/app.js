@@ -175,11 +175,11 @@ function paintRead() {
   // Pace and projection from the last 12 months of chapter episodes.
   const chapterEps = D.episodes.filter((e) => e.chapter_key);
   const cutoff = new Date(Date.now() - 365 * 86400000);
-  const recent = new Set(chapterEps.filter((e) => new Date(e.date) >= cutoff).map((e) => e.chapter_key));
+  const recent = new Set(chapterEps.filter((e) => new Date(e.date) >= cutoff).flatMap((e) => e.chapter_keys || [e.chapter_key]));
   const remaining = TOTAL_CHAPTERS - done;
   const last = chapterEps[chapterEps.length - 1];
   let note = "";
-  if (last) note += `Latest chapter: ${BOOK_TITLE[last.book] || last.book}, ${last.pov} ${roman(last.ordinal)} (${fmtDate(last.date)}). `;
+  if (last) note += `Latest chapter: ${BOOK_TITLE[last.book] || last.book}, ${last.pov} ${romanList(last)} (${fmtDate(last.date)}). `;
   if (remaining === 0) note += "Every chapter is covered. The Winds of Winter is George's problem now.";
   else if (recent.size === 0) note += `${remaining} chapters to go. No chapter episodes in the last 12 months, so no projection.`;
   else {
@@ -196,6 +196,10 @@ function roman(n) {
   let s = "";
   for (const [v, r] of map) while (n >= v) { s += r; n -= v; }
   return s;
+}
+function romanList(e) {
+  const ords = e.ordinals && e.ordinals.length ? e.ordinals : [e.ordinal];
+  return ords.map(roman).join("/");
 }
 
 function paintPovTable() {
@@ -488,7 +492,7 @@ function seriesTag(series) {
   s.append(i, document.createTextNode(series)); return s;
 }
 function chapterLabel(e) {
-  return e.chapter_key ? `${e.book} ${e.pov} ${roman(e.ordinal)}` : "";
+  return e.chapter_key ? `${e.book} ${e.pov} ${romanList(e)}` : "";
 }
 
 function paintGuests(eps) {

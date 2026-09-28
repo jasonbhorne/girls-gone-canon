@@ -52,6 +52,12 @@ SERIES_RULES = [
 ]
 
 ROMAN = r"(?:X{0,2}(?:IX|IV|V?I{0,3}))"
+ROMAN_NONEMPTY = r"(?:X{0,2}(?:IX|IV|V?I{1,3}|V))"
+# "Eddard II/III", "Jon IV & V", "Sansa I, II": one episode, several chapters.
+ORDINAL_SEP = r"\s*(?:/|&|\band\b|,|\+)\s*"
+# Words the hosts put between the POV name and the numeral, or around it.
+CHAPTER_JUNK_RE = re.compile(r"\b(?:Intro|Outro|Overview|Wrap[- ]?up)\b", re.IGNORECASE)
+SURNAME_RE = r"(?:\s+(?:Stark|Snow|Lannister|Targaryen|Greyjoy|Tully|Martell|Baratheon|Tarly|Seaworth|Selmy|Tarth|Sand|Hotah|Connington))?"
 ROMAN_VAL = {"I": 1, "V": 5, "X": 10}
 
 
@@ -99,7 +105,9 @@ class ChapterRef:
         names = list(self.aliases) + self.povs
         names.sort(key=len, reverse=True)
         self.pov_re = re.compile(
-            r"\b(" + "|".join(re.escape(n) for n in names) + r")\b\s*(" + ROMAN + r")\b(?![a-z])",
+            r"\b(" + "|".join(re.escape(n) for n in names) + r")\b" + SURNAME_RE
+            + r"\s*(" + ROMAN + r")\b(?![a-z])"
+            + r"((?:" + ORDINAL_SEP + ROMAN_NONEMPTY + r"\b(?![a-z]))*)",
             re.IGNORECASE,
         )
         self.book_re = re.compile(
@@ -122,22 +130,47 @@ class ChapterRef:
         return self.alias_to_key[m.group(1).lower()] if m else None
 
     def find_named(self, title: str):
+        """Return (book, pov, [ordinals]) for titled chapters in the title, else None.
+
+        "The Queensguard/The Discarded Knight" names two chapters of one POV;
+        both are returned. If the title somehow names two POVs, the first wins.
+        """
         low = title.lower()
+        hits = []
         for name, (book, pov, ordinal) in self.named.items():
-            if re.search(r"\b" + re.escape(name) + r"\b", low):
-                return book, pov, ordinal
-        return None
+            m = re.search(r"\b" + re.escape(name) + r"\b", low)
+            if m:
+                hits.append((m.start(), book, pov, ordinal))
+        if not hits:
+            return None
+        hits.sort()
+        _, book, pov, _ = hits[0]
+        ords = sorted({o for _, b, p, o in hits if (b, p) == (book, pov)})
+        return book, pov, ords
 
     def find_pov(self, title: str):
-        """Return (pov, ordinal) for the first 'Name I' style token, else None."""
+        """Return (pov, [ordinals]) for the first 'Name I' style token, else None.
+
+        Handles "Eddard II/III", "Jon IV & V", "Sansa Stark Intro/I" and
+        "Theon VI/Outro": every numeral after the name counts as a chapter.
+        """
+        title = CHAPTER_JUNK_RE.sub(" ", title)
+        # A slash left dangling by the removal ("Sansa Stark  /I", "Jon I/ ")
+        # is not a range separator; drop it. "II/III" keeps its slash.
+        title = re.sub(r"(?:^|\s)/\s*", " ", title)
+        title = re.sub(r"\s*/(?:\s|$)", " ", title)
+        title = re.sub(r"\s*/\s*", "/", title)
         for m in self.pov_re.finditer(title):
-            name, numeral = m.group(1), m.group(2)
+            name, numeral, more = m.group(1), m.group(2), m.group(3) or ""
+            pov = self.canon_pov(name)
             if not numeral:
                 # Prologue / Epilogue have no numeral.
-                if self.canon_pov(name) in ("Prologue", "Epilogue"):
-                    return self.canon_pov(name), 1
+                if pov in ("Prologue", "Epilogue"):
+                    return pov, [1]
                 continue
-            return self.canon_pov(name), roman_to_int(numeral)
+            ords = [roman_to_int(numeral)]
+            ords += [roman_to_int(x) for x in re.findall(ROMAN_NONEMPTY, more.upper())]
+            return pov, sorted(set(ords))
         return None
 
     def books_for(self, pov: str) -> list[str]:
@@ -270,7 +303,7 @@ def parse_guests(title: str) -> list[str]:
 
 def classify(title: str, ref: ChapterRef) -> dict:
     """Return series/book/pov/chapter info for a normalized title."""
-    info = {"series": "Other", "book": None, "pov": None, "ordinal": None, "episode_num": None}
+    info = {"series": "Other", "book": None, "pov": None, "ordinal": None, "ordinals": [], "episode_num": None}
     m = re.search(r"\bASOIAF\s*(?:Episode|Ep\.?)\s*(\d+)", title, re.IGNORECASE)
     if m:
         info["episode_num"] = int(m.group(1))
@@ -291,10 +324,10 @@ def classify(title: str, ref: ChapterRef) -> dict:
             return info
 
     if named:
-        info.update(series="ASOIAF", book=named[0], pov=named[1], ordinal=named[2])
+        info.update(series="ASOIAF", book=named[0], pov=named[1], ordinal=named[2][0], ordinals=named[2])
         return info
     if pov and (book or m or not show_like):
-        info.update(series="ASOIAF", book=book, pov=pov[0], ordinal=pov[1])
+        info.update(series="ASOIAF", book=book, pov=pov[0], ordinal=pov[1][0], ordinals=pov[1])
         return info
     if m:
         info["series"] = "ASOIAF"
@@ -315,23 +348,24 @@ def infer_books(episodes: list[dict], ref: ChapterRef) -> None:
         eps.sort(key=lambda e: (e["date"], e.get("episode_num") or 0))
         last_book, last_ord = None, None
         for e in eps:
+            first, last = min(e["ordinals"]), max(e["ordinals"])
             if e["book"]:
-                last_book, last_ord = e["book"], e["ordinal"]
+                last_book, last_ord = e["book"], last
                 continue
             cands = ref.books_for(pov)
             chosen = None
             if last_book and last_book in cands:
-                if e["ordinal"] == last_ord + 1 and e["ordinal"] <= ref.counts[last_book].get(pov, 0):
+                if first == last_ord + 1 and last <= ref.counts[last_book].get(pov, 0):
                     chosen = last_book
-                elif e["ordinal"] == 1:
+                elif first == 1:
                     nxt = [b for b in cands if ref.book_keys.index(b) > ref.book_keys.index(last_book)]
                     chosen = nxt[0] if nxt else None
             if not chosen:
-                fits = [b for b in cands if e["ordinal"] <= ref.counts[b].get(pov, 0)]
+                fits = [b for b in cands if last <= ref.counts[b].get(pov, 0)]
                 chosen = fits[0] if fits else (cands[0] if cands else None)
             e["book"] = chosen
             e["book_inferred"] = True
-            last_book, last_ord = chosen, e["ordinal"]
+            last_book, last_ord = chosen, last
 
 
 def parse_feed(xml_bytes: bytes, ref: ChapterRef) -> dict:
@@ -403,14 +437,20 @@ def parse_feed(xml_bytes: bytes, ref: ChapterRef) -> dict:
     episodes.sort(key=lambda e: e["date"])
     infer_books(episodes, ref)
 
-    # Chapter coverage: one entry per distinct (book, pov, ordinal).
+    # Chapter coverage: one entry per distinct (book, pov, ordinal). An episode
+    # that covers "II/III" contributes both chapters.
     covered: dict[str, dict[str, set]] = {b: {} for b in ref.book_keys}
     for e in episodes:
-        if e["series"] == "ASOIAF" and e["book"] and e["pov"] and e["ordinal"]:
+        if e["series"] == "ASOIAF" and e["book"] and e["pov"] and e["ordinals"]:
             total = ref.counts.get(e["book"], {}).get(e["pov"])
-            if total and e["ordinal"] <= total:
-                covered[e["book"]].setdefault(e["pov"], set()).add(e["ordinal"])
-                e["chapter_key"] = f'{e["book"]} {e["pov"]} {e["ordinal"]}'
+            keys = []
+            for o in e["ordinals"]:
+                if total and o <= total:
+                    covered[e["book"]].setdefault(e["pov"], set()).add(o)
+                    keys.append(f'{e["book"]} {e["pov"]} {o}')
+            if keys:
+                e["chapter_key"] = keys[0]
+                e["chapter_keys"] = keys
     coverage = {
         b: {pov: sorted(s) for pov, s in povs.items()} for b, povs in covered.items()
     }
